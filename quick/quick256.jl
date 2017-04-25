@@ -1,12 +1,6 @@
 
 using Images, ImageCore
-args = ARGS
-if length(args) == 0
-  println("No filename given.")
-  exit(-1)
-end
-filen = shift!(args)
-
+filen = "IMG_0763.jpg"
 topclip = 0.01 # allow this proportion of pixels to be clipped into the top bin
 bottomclip = 0.01 # allow this proportion of pixels to be clipped into the bottom bin
 
@@ -23,7 +17,7 @@ px = sz[1]
 py = sz[2]
 pixcount = px * py
 println("\Image size: ", px, "x", py, " pixels")
-img = reinterpret(UInt16, img)
+img = reinterpret(UInt8, img)
 imgr = reshape(img[1, :, :], pixcount)
 imgg = reshape(img[2, :, :], pixcount)
 imgb = reshape(img[3, :, :], pixcount)
@@ -41,10 +35,10 @@ println("Image and histograms loaded")
 mapto = zeros(UInt32, 1:65536)
 topcount = floor(pixcount * topclip)
 sofar = 0
-ptr = 65536
+ptr = 256
 while sofar < topcount
   sofar += pixmax[ptr]
-  mapto[ptr] = 65536
+  mapto[ptr] = 256
   ptr -= 1
 end
 
@@ -65,7 +59,7 @@ println("Bottom clip level = ", bottomptr)
 
 # Linear moving
 for i = bottomptr:topptr
-  mapto[i] = floor(65536 * (i - bottomptr) / (topptr - bottomptr))
+  mapto[i] = floor(256 * (i - bottomptr) / (topptr - bottomptr))
 end
 
 ten = floor(pixcount / 10)
@@ -80,17 +74,17 @@ for i = 1:pixcount
     println(i, " of ", pixcount)
     ctr = ten
   end
-  imgr[i] = floor(UInt16, factor * (imgr[i] - rf) + rf)
-  imgg[i] = floor(UInt16, factor * (imgg[i] - gf) + gf)
-  imgb[i] = floor(UInt16, factor * (imgb[i] - bf) + bf)
+  imgr[i] = floor(UInt8, factor * (imgr[i] - rf) + rf)
+  imgg[i] = floor(UInt8, factor * (imgg[i] - gf) + gf)
+  imgb[i] = floor(UInt8, factor * (imgb[i] - bf) + bf)
 end
 
-final = zeros(UInt16, 3, px, py)
+final = zeros(UInt8, 3, px, py)
 final[1, :, :] = imgr
 final[2, :, :] = imgg
 final[3, :, :] = imgb
 
-final = colorview(RGB{N0f16}, final)
+final = colorview(RGB{N0f8}, final)
 #final = reinterpret()
 oname = "q$filen"
 print("Saving $oname... ")
