@@ -1,4 +1,6 @@
-
+print("Loading packages... ")
+using Images, FileIO, StatsBase, ImageCore
+println("Done!")
 ###############################################################################
 # DATA DEFINITIONS                                                            #
 # {red|green|blue}map = current value of each pixel                           #
@@ -7,7 +9,7 @@
 ###############################################################################
 ########################## defaults ##############################################
 
-obase = "none"  # default output base file name
+obase = "a-stretched-image"  # default output base file name
 
 rootpower    = 6.0      # default power factor: 1/rootpower for all iterations
 rootiter     = 1        # number of iterations on applying rootpower - sky
@@ -26,8 +28,8 @@ rgbskylevelrs = 4096.0    # desired  on output root stretched image 16-bit  0 to
 zeroskyred    = 4096.0    # desired zero point on sky, red   channel
 zeroskygreen  = 4096.0    # desired zero point on sky, green channel
 zeroskyblue   = 4096.0    # desired zero point on sky, blue  channel
-scurve        = 0         # no s-curve application
-setmin        = 0         # no modification of the minimum
+scurve        = 1         # no s-curve application
+setmin        = 1         # no modification of the minimum
 setminr = 0.0  # minimum for red
 setming = 0.0  # minimum for green
 setminb = 0.0  # minimum for blue
@@ -38,344 +40,15 @@ saveinputminussky  = 0  #  save input image - sky
 debuga  = 0  # set to 1 for debugging, or 0 for none
 doplots = 0  # show plots of histograms
 
-function printhelp()
-	println("      ERROR: need command line arguments")
-	println("form:")
-	println("      rnc-color-stretch   input_16bit_file [-rootpower x.x]  [-percent_clip p.p]")
-	println("                                   -obase filename_noextension] [-enhance factor] [-tone] [-debug]")
-	println("                                    [-specpr spfile] [-cumstretch] [-skylevelfactor x.x]")
-	println("                                    [-rgbskyzero x.x x.x x.x]")
-	println("                                    [-setmin R G B]")
-	println("                                    [-nocolorcoerect]")
-	println("                                    [-scurve1|-scurv2|scurve3|scurve4]")
-	println("                                    [-jpegonly]  [-display]")
-  println("\n      -obase   outoput base file name")
-	println("      -rootpower x.x  values 1.0 to 599.0, default =%f\n", rootpower)
-	println("                     Use higher number to bring up the faint end more")
-	println("      -rootpower2 x.x  Use this power on iteration 2 if the user sets it >1")
-	println("      -rootiter   Number of iterations to apply rootpower - sky, default =1")
-	println("      -percent_clip p.p  allow no more than this percent of pixels to be clipped at zero.  default = %f%%\n", pcntclip)
-	println("                       Note: zeros are ignored")
-	println("      -enhance factor is >= 0.1. Values below 1 desaturate, above saturate.  default = %6.2f\n", colorenhance)
-	println("      -specpr spfile  This option isn't implemented")
-	println("      -skylevelfactor  the sky histogram alignment level relative to peak histogram (0.000001 to 0.5)")
-	println("                       skylevelfactor default = %f\n", skylevelfactor)
-	#println("      -rgbskylevel  output image, neutralized dark sky DN level.  default= %f (OBSOLETE)\n", rgbskylevel)
-	#println("                    NOTE: rgbskylevel gets overridden by rgbskyzero so is obsolete")
-	println("      -rgbskyzero  final image zero point level.  default RGB= %8.1f %8.1f %8.1f\n", zeroskyred, zeroskygreen, zeroskyblue)
-	println("                   In the core of the Milky Way, it might be something like the color of interstellar dust.")
-	println("                   This might be something like 2500 4000 5500 (0 to 65535, 16-bit range)")
-	println("      -cumulstretch do cumulative stretch after rootpower (not recommended)")
-	println("      -scurve1  apply an s-curve stretch as last step")
-	println("      -scurve2  apply a stronger s-curve stretch as last step")
-	println("      -scurve3  apply s-curve1 then 2, then 1 again as last step")
-	println("      -scurve4  apply s-curve1 then 2, then 1, then 2 again as last step")
-	println("      -setmin R G B set minimum levels to the 3 (floating point) values for red, green, blue")
-	println("                    typical is about 20 on a 0 - 255 scale for darkest sky")
-	println("                                        = 65535 * 20/255 = 5140 on 16-bit scale")
-	println("      -jpegonly   do jpeg output only, no 16-bt png")
-	println("      -display    display the final image")
-	println("      -plots      display plots of the RGB histograms at each stage--currently not implemented")
-	println("      -debug          turn on debug info and write debug images--currently not implemented")
-	println("      -nocolorcoerect turn off color correction to see the detrimental effect of stretching")
-  println("\n  Example:")
-	println("      rnc-color-stretch trestfile.tif -rootpower 6.0  -obase testresult4  -scurve1")
-	exit(1)
-end
-
-args = ARGS
-if length(args) == 0
-  printhelp()
-  exit(-1)
-end
-filename = shift!(args)
-while length(args) > 0
-  opt = shift!(args)
-  if opt == "-rootpower"
-    if length(args) == 0 then
-      println("No value specified for rootpower")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Invalid argument to -rootpower: $text")
-      exit(-1)
-    elseif 1 <= x <= 599
-      rootpower = x
-      println("Root power is $x")
-      rootpower2 = x
-    else
-      println("Rootpower is $x; must be between 1 and 599")
-      exit(-1)
-    end
-  elseif opt == "-rootiter"
-    if length(args) == 0 then
-      println("No value specified for rootiter")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Int16, text)
-    if isnull(x)
-      println("Invalid argument to -rootiter: $text")
-      exit(-1)
-    elseif i == 1 || i == 2
-      rootiter = i
-      println("Doing $rootiter iterations over root")
-    else
-      println("Rootiter is $i; must be 1 or 2")
-      exit(-1)
-    end
-  elseif opt == "-rootpower2"
-    if length(args) == 0 then
-      println("No value specified for rootpower2")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Invalid argument to -rootpower2: $text")
-      exit(-1)
-    elseif 1 <= x <= 599
-      rootpower2 = x
-      println("Rootpower2 is $x")
-    else
-      println("Rootpower2 is $x; must be between 1 and 599")
-      exit(-1)
-    end
-  elseif opt == "-percentclip"
-    if length(args) == 0 then
-      println("No value specified for percentclip")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Invalid argument to -percentclip: $text")
-      exit(-1)
-    elseif 0 <= x <= 90
-      pcntclip = x
-      println("Clipping at $pcntclip%")
-    else
-      println("percentclip is $x; must be between 0 and 90")
-      exit(-1)
-    end
-  elseif opt == "-obase"
-    if length(args) == 0 then
-      println("No value specified for obase")
-      exit(-1)
-    end
-    obase = shift!(args)
-    println("Base output file name = $obase")
-  elseif opt == "-enhance"
-    if length(args) == 0 then
-      println("No value specified for enhance")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Invalid argument to -enhance: $text")
-      exit(-1)
-    else
-      enhance = x
-      println("Enhancing at $enhance\%")
-    end
-  elseif opt == "-setmin"
-    if length(args) < 3
-      println("-setmin requires three arguments")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("First argument to -setmin is $text, needs to be numeric")
-      exit(-1)
-    else
-      setminr = x
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Second argument to -setmin is $text, needs to be numeric")
-      exit(-1)
-    else
-      setming = x
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Third argument to -setmin is $text, needs to be numeric")
-      exit(-1)
-    else
-      setminb = x
-    end
-    if 0 <= setminr <= 20000 &&
-       0 <= setming <= 20000 &&
-       0 <= setminb <= 20000
-      setmin = 1
-      println("Settting mins: $setminr, $setming, $setminb")
-    else
-      println("Arguments to -setmin must be between 0 and 2000.")
-      println("Actual args were $setminr, $setming, $setminb")
-      exit(-1)
-    end
-  elseif opt == "-skylevelfactor"
-    if length(args) == 0 then
-      println("No value specified for skylevelfactor")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Invalid argument to -skylevelfactor: $text")
-      exit(-1)
-    elseif 0.000001 <= x <= 0.7
-      skylevelfactor = x
-      println("Using skylevel factor $x")
-    else
-      println("Skylevel factor $x is out of range; should be 0.00001 to 0.7")
-      exit(-1)
-    end
-  elseif opt == "-rgbskylevel"
-    if length(args) == 0 then
-      println("No value specified for rgbskylevel")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Invalid argument to -rgbskylevel: $text")
-      exit(-1)
-    end
-    if 0.1 <= x <= 20000
-      rgbskylevel = x
-      println("Using rgbskylevel $x")
-    else
-      println("rgbskylevel out of range at $x; should be 0.1-20000")
-      exit(-1)
-    end
-  elseif opt == "-rgbskyzero"
-    if length(args) < 3
-      println("-rgbskyzero requires three arguments")
-      exit(-1)
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("First argument to -rgbskyzero is $text, needs to be numeric")
-      exit(-1)
-    else
-      zeroskyred = x
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Second argument to -rgbskyzero is $text, needs to be numeric")
-      exit(-1)
-    else
-      zeroskygreen = x
-    end
-    text = shift!(args)
-    x = tryparse(Float16, text)
-    if isnull(x)
-      println("Third argument to -rgbskyzero is $text, needs to be numeric")
-      exit(-1)
-    else
-      zeroskyblue = x
-    end
-    if 0 <= zeroskyred <= 25000 &&
-       0 <= zeroskygreen <= 25000 &&
-       0 <= zeroskyblue <= 25000
-      println("zeroing sky: $zeroskyred, $zeroskygreen, $zeroskyblue") # just for something to do
-    else
-      println("Arguments to -rgbskyzero must be between 0 and 25000.")
-      println("Actual args were $zeroskyred, $zeroskygreen, $zeroskyblue")
-      exit(-1)
-    end
-  elseif opt == "-cumstretch"
-    cumstretch = 1
-    println("Will do cumulative stretch")
-  elseif opt == "-debug"
-    debuga = 1
-    println("Warning: Debug flag enabled but no debugging routines implemented")
-  elseif opt == "-display"
-    idisplay = 1
-    println("Will display final image")
-  elseif opt == "-plots"
-    doplots = 1
-    print("Warning: Plots enabled but not implemented")
-  elseif opt == "-jpegonly"
-    jpegonly = 1
-    println("Saving jpeg only, except it's not implemented")
-  elseif opt == "-nocolorcorrect"
-    colorcorrect = 0
-    println("Color correct off")
-  elseif opt == "-tone"
-    tonecurve = 1
-    println("Doing tone curve")
-  elseif opt == "-scurve1"
-    scurve = 1
-    println("Applying s-curve 1")
-  elseif opt == "-scurve2"
-    scurve = 2
-    println("Applying s-curves 1 & 2")
-  elseif opt == "-scurve3"
-    scurve = 3
-    println("Applying s-curves 1, 2, and 1 again")
-  elseif opt == "-scurve4"
-    scurve = 4
-    println("Applying s-curves, 1, 2, 1, 2")
-  elseif opt == "-saveinputminussky"
-    saveinputminussky = 1
-    print("Saving input - sky not implemented")
-  elseif opt == "-specpr"
-    if len(args) == 0
-      println("No file given for specpr")
-      exit(-1)
-    else
-      specprhist = 1
-      spfile = shift!(args)
-      print("Would save histograms to specpr file spfile but it's not implemented")
-    end
-  elseif opt == "-help"
-    printhelp()
-    exit(0)
-  else
-    println("Unknown option: $opt")
-    exit(-1)
-  end
-end
-
-if obase == "none"
-  reggie = match(r"([^.]*)\.", filename)
-  if reggie == nothing
-    println("Warning: Couldn't get a base file name from $filename")
-  else
-    obase = string(reggie[1], "-final")
-  end
-  println("Output file(s) will be called $obase")
-end
-
-print("Loading packages... ")
-using Images, FileIO, StatsBase, ImageCore
-
-# Plots is slow to load; don't load if we're not using it
-if doplots == 1
+if doplots != 0
+  print("Loading Plots package... ")
   using Plots
   pyplot()
-else # have to define a dummy function so that plotter() doesn't cause an error
+  println("Done!")
+else # give plot() a definition
   function plot(args...)
   end
 end
-
-# ImageView loads pretty fast, but still....
-if idisplay == 1
-  using ImageView
-end
-
-println("Done!")
-
 
 redvals = 0
 greenvals = 0
@@ -583,9 +256,11 @@ function setmins()
 
 end
 
+filename = "BaseOrion.tif"
 print("Loading $filename... ")
 tic()
 img = load(filename)
+save("save1.png", img)
 if img == nothing
   println("Image failed to load.")
   exit(-1)
@@ -605,7 +280,7 @@ img = reinterpret(UInt16, img)
 imgr = reshape(img[1, :, :], npix)
 imgg = reshape(img[2, :, :], npix)
 imgb = reshape(img[3, :, :], npix)
-
+img = 0
 #=
 redcounts = fit(Histogram, imgr, 0:65536).weights
 greencounts = fit(Histogram, imgg, 0:65536).weights
@@ -650,6 +325,8 @@ if tonecurve == 1
   # it's not time-critical and not worth the time to figure out
   f = (map( x-> x ^ 0.4, (collect(0:65535) ./ c)))
   f = map( x -> b * (1 / d) ^ x, f)
+  g = summarystats(f)
+  print(g)
   redvals = floor(redvals .* f)
   greenvals = floor(greenvals .* f)
   bluevals = floor(bluevals .* f)
@@ -657,6 +334,8 @@ if tonecurve == 1
   remap()
   print("after tone curve:\n")
   showmeans()
+else
+  print("\nNot doing tone curve\n")
 end
 
 alowred   = 0  # find the DN level which is the cut level
@@ -707,7 +386,9 @@ afr = map(x -> redmap[x + 1], imgr)
 afg = map(x -> greenmap[x + 1], imgg)
 afb = map(x -> bluemap[x + 1], imgb)
 # assemble sky-subtracted image here
-
+g = summarystats(afr)
+println(">>> afr summary")
+print(g)
 println("============= computing root stretch =============")
 for pass = 1:rootiter
   if pass == 2
@@ -822,12 +503,26 @@ if setmin > 0
 end
 
 #plotter("Before final load")
+redvals = 0
+greenvals = 0
+bluevals = 0
+newred = 0
+newgreen = 0
+newblue = 0
+
 cr = map(x -> redmap[x + 1] - 1, imgr)
 cg = map(x -> greenmap[x + 1] - 1, imgg)
 cb = map(x -> bluemap[x + 1] - 1, imgb)
 cr[cr .== 0] = 1
 cg[cg .== 0] = 1
 cb[cb .== 0] = 1
+
+redmap = 0
+greenmap = 0
+bluemap = 0
+imgr = 0
+imgg = 0
+imgb = 0
 
 crmin = reduce(min, 65537, cr)
 crmax = reduce(max, 0, cr)
@@ -887,17 +582,17 @@ if colorcorrect > 0
 
   println("\nColor ratio images after constraint to interval ($zmin, $zmax)")
   g = summarystats(grratio)
-  @printf "grratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
+  print(g)
   g = summarystats(brratio)
-  @printf "brratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
+  print(g)
   g = summarystats(rgratio)
-  @printf "rgratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
+  print(g)
   g = summarystats(bgratio)
-  @printf "bgratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
+  print(g)
   g = summarystats(gbratio)
-  @printf "gbratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
+  print(g)
   g = summarystats(rbratio)
-  @printf "rbratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
+  print(g)
 
   avgn = (cr .+ cg .+ cb) ./ (3 * 65535)
   avgn[avgn .< 0] = 0
@@ -925,18 +620,18 @@ if colorcorrect > 0
   rbratio = 1 .+ cfe .* (rbratio .- 1)
 
   println("Color ratio images after factors applied")
-  g = summarystats(grratio)
-  @printf "grratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
-  g = summarystats(brratio)
-  @printf "brratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
-  g = summarystats(rgratio)
-  @printf "rgratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
-  g = summarystats(bgratio)
-  @printf "bgratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
-  g = summarystats(gbratio)
-  @printf "gbratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
-  g = summarystats(rbratio)
-  @printf "rbratio min = %7.3f, max = %7.3f, mean = %7.3f\n"  g.min g.max g.mean
+  println("grratio:")
+  describe(grratio)
+  println("brratio:")
+  describe(brratio)
+  println("rgratio:")
+  describe(rgratio)
+  println("bgratio:")
+  describe(bgratio)
+  println("gbratio:")
+  describe(gbratio)
+  println("rbratio:")
+  describe(rbratio)
 
   cmin = reduce(min, 65537, cfe)
   cmax = reduce(max, 0, cfe)
@@ -1020,13 +715,10 @@ final[2, :, :] = finalg
 final[3, :, :] = finalb
 
 final = colorview(RGB{N0f16}, final)
-if idisplay == 1
-  imshow(final)
-  println("Hit <Enter> to continue:")
-  readline(STDIN)
-end
+
 #final = reinterpret()
 oname = "$obase.png"
+oname = "neworionout.png"
 print("Saving $oname... ")
 save(oname, final)
-println("Done!")
+print("Done!")
