@@ -7,15 +7,24 @@ struct star
   y::Int32
 end
 
+# pseudo-constants; they would be real constants except that they can be altered from the command line
+
+EDGE::Int32 = 25        # size of one cell and of one centroid for isolating stars
+                        # This is also the size of the unused margin around the photo (so that centroid seeking doesn't wander off the picture)
+CUTMAX::Float16 = 1.00  # don't use maxima above this because they're probaby wrong
+CUTMIN::Float16 = 0.01  # don't use maxuma below this because they're probably just noise
+STARCOUNT::Int32 = 40   # How many stars are we looking for?
+EPSILON::Int32 = 2      # How close do two potential stars have to be to count as the same
+
 function center_of_mass(x::Int, y::Int)
   offset::Int32 = floor(EDGE / 2)
   cells = img[y - offset:y + offset, x - offset:x + offset]
   weights::Float32 = 0.0
   xsum::Float32 = 0.0
   ysum::Float32 = 0.0
-  for ix = 1:EDGE
-    for iy = 1:EDGE
-      pixel = cells[ix, iy]
+  for ix = -offset:offset
+    for iy = -offset:offset
+      pixel = cells[ix + offset + 1, iy + offset + 1]
       pixval = min(pixel.r, pixel.g, pixel.b)
       weights += pixval
       xsum += pixval * ix
@@ -24,8 +33,8 @@ function center_of_mass(x::Int, y::Int)
   end
   centerx = xsum / weights
   centery = ysum / weights
-  rx = x + centerx - EDGE
-  ry = y + centery - EDGE
+  rx = x + centerx
+  ry = y + centery
   return (rx, ty)
 end
 
@@ -38,12 +47,6 @@ if img == nothing
   exit(-1)
 end
 
-EDGE::Int32 = 25 # size of one cell and of one centroid for isolating stars
-          # This is also the size of the unused margin around the photo (so that centroid seeking doesn't wander off the picture)
-CUTMAX::Float16 = 0.90 # don't use maxima above this because they're probaby wrong
-CUTMIN::Float16 = 0.01 # don't use maxuma below this because they're probably just noise
-STARCOUNT::Int32 = 40 # How many stars are we looking for?
-EPSILON::Int32 = 2 # How close do two potential stars have to be to count as the same
 println("Done!")
 sz = size(img)
 px::Int32 = sz[1]
@@ -51,40 +54,35 @@ py::Int32 = sz[2]
 println("Image size: ", px, "x", py, " pixels")
 imagetype::Type = typeof(img[1, 1].r)
 println("Image kind ", imagetype)
-colcells::Int32 = floor((px - 2 * EDGE) / EDGE)
-rowcells::Int32 = floor((py - 2 * EDGE) / EDGE)
+colcells::Int32 = floor((px - 2 * EDGE) / EDGE) # leave a margin of at least EDGE on all sides
+rowcells::Int32 = floor((py - 2 * EDGE) / EDGE) # this allows the center_of_mass routing room to move
 
-maxval = zeros(imagetype, rowcells * colcells)
-maxx = zeros(UInt32, rowcells * colcells)
-maxy = zeros(UInt32, rowcells * colcells)
+maxval = zeros(imagetype, rowcells, colcells)
+maxx = zeros(UInt32, rowcells, colcells)
+maxy = zeros(UInt32, rowcells, colcells)
 
 # find max in each cell
 yc::Int32 = EDGE
 yptr::Int32 = 1
 ptr::Int32 = 1
-for y = 1:(EDGE * colcells)
-    xc::Int32 = xstep
-    xptr::Int32 = 1
-    for x = 1:(EDGE * rowcells)
-        pixel = img[x, y]
+for bigy = 1:rowcells
+  yp = EDGE * bigy
+  for littley = 1:EDGE
+    for bigx = 1:colcells
+      xp = EDGE * bigx
+      for littlex = 1:EDGE
+        pixel = img[xp, yp]
         pixval = min(pixel.r, pixel.g, pixel.b)
-        if pixval < CUTMAX & pixval > CUTMIN & pixval > maxval[xptr, yptr]
-            maxval[ptr] = pixval
-            maxx[ptr] = x
-            maxy[ptr] = y
+        if pixval < CUTMAX & pixval > CUTMIN & pixval > maxval[bigx, bigy]
+            maxval[bigx, bigy] = pixval
+            maxx[bigx, bigy] = x
+            maxy[bigx, bigy] = y
         end
-        xc -= 1
-        if xc == 0
-            xptr += 1
-            xc = xstep
-        end
-        ptr += 1
+        xp += 1
+      end
     end
-    yc -= 1
-    if yc == 0
-        yptr += 1
-        yc = ystep
-    end
+    yp += 1
+  end
 end
 
 # Start processing with the brightest objects
@@ -98,7 +96,7 @@ while size(stars) < STARCOUNT && size(order) > 0
   stary = maxy[order[1]]
   onestar::star = refine(starx, stary)
   add = true
-  if onestar.maxval > 0
+  if onestar.maxval > 0 # refine() returns a zero in maxval if convergence failed or shape test failed
     for i = 1:size(stars)
       if abs(starx - stars[i].x) <= EPSILON ||
          abs(stary - stars[i].y) <= EPSILON
